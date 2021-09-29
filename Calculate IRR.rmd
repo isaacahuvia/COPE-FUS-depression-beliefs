@@ -1,0 +1,61 @@
+---
+title: "Calculate Inter-rater Agreement"
+date: "9/28/2021"
+output: html_document
+---
+  
+```{r, include = F}
+## Startup
+rm(list = ls())
+library(easypackages)
+libraries("tidyverse", "openxlsx", "irr", "knitr", "kableExtra")
+
+## Set functions
+preprocess <- function(x) {
+  
+  if(is.numeric(x)) {
+  
+    x <- replace_na(x, 0)
+  
+  } else {
+    
+    x <- recode(x, "x" = "1")
+    x <- as.numeric(x)
+    x <- replace_na(x, 0)
+    
+  }
+  
+  return(x)
+  
+}
+
+diagnose <- function(dfI, dfL, x) {
+  
+  IRR = round(out$IRR[out$name == x], 2)
+  pct = round(100 * out$pctAgree[out$name == x])
+  disagree = length(na.omit(unique(dfI$X1[dfI[[x]] != dfL[[x]]])))
+  
+  out = paste0("(IRR = ", IRR, ", % Agree = ", pct, "%, ", disagree, " off)")
+  
+  return(out)
+  
+}
+
+## Load, pre-process data
+i <- read.xlsx("S:\\COPE\\Data\\FUS\\Raw Qualitative Responses\\Depression Causes\\Depression Causes Responses - Validation_IA.xlsx",
+               startRow = 3) %>%
+  rename(responseID = X1, response = X2, count = X28, notes = X29) %>%
+  mutate(across(Lack.of.Control:count, preprocess))
+```
+
+## Calculate IRR - Pre-Recode
+
+```{r, echo = F, message = F}
+#Calculating agreement between three columns (will be three raters of same variable)
+x1 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 1, 0)
+x2 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 1, 1)
+x3 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 0, 0)
+
+#Using Light's kappa (best for fully-crossed designs; see Hallgren 2012)
+kappam.light(cbind(x1, x2, x3))
+```
