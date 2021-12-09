@@ -1,6 +1,6 @@
 ---
 title: "Calculate Inter-rater Agreement"
-date: "9/28/2021"
+date: "11/16/2021"
 output: html_document
 ---
   
@@ -8,7 +8,8 @@ output: html_document
 ## Startup
 rm(list = ls())
 library(easypackages)
-libraries("tidyverse", "openxlsx", "irr", "knitr", "kableExtra")
+libraries("tidyverse", "openxlsx", "irr", "irrCAC", "knitr", "kableExtra")
+
 
 ## Set functions
 preprocess <- function(x) {
@@ -41,21 +42,116 @@ diagnose <- function(dfI, dfL, x) {
   
 }
 
+
 ## Load, pre-process data
-i <- read.xlsx("S:\\COPE\\Data\\FUS\\Raw Qualitative Responses\\Depression Causes\\Depression Causes Responses - Validation_IA.xlsx",
+i <- read.xlsx("S:\\COPE\\Data\\FUS\\Raw Qualitative Responses\\Depression Causes\\Depression Causes Responses_IA.xlsx",
                startRow = 3) %>%
-  rename(responseID = X1, response = X2, count = X28, notes = X29) %>%
+  rename(response = X2, count = X30, notes = X31) %>%
+  mutate(across(Lack.of.Control:count, preprocess))
+
+s <- read.xlsx("S:\\COPE\\Data\\FUS\\Raw Qualitative Responses\\Depression Causes\\Depression Causes Responses_SC.xlsx",
+               startRow = 3,
+               na.strings = "N/A") %>%
+  rename(response = X2, count = X30, notes = X31) %>%
+  mutate(across(Lack.of.Control:count, preprocess))
+
+l <- read.xlsx("S:\\COPE\\Data\\FUS\\Raw Qualitative Responses\\Depression Causes\\Depression Causes Responses_LG.xlsx",
+               startRow = 3) %>%
+  rename(response = X2, count = X30, notes = X31) %>%
   mutate(across(Lack.of.Control:count, preprocess))
 ```
 
-## Calculate IRR - Pre-Recode
+## Calculate IRR
 
-```{r, echo = F, message = F}
-#Calculating agreement between three columns (will be three raters of same variable)
-x1 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 1, 0)
-x2 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 1, 1)
-x3 <- c(i$`Dysfuncitonal.Home/Family.Relationships`, 0, 0)
+For binary variables:
 
-#Using Light's kappa (best for fully-crossed designs; see Hallgren 2012)
-kappam.light(cbind(x1, x2, x3))
+```{r, echo = F, warning = F}
+out <- tibble(
+  variable = character(),
+  mean = numeric(),
+  kappa = numeric(),
+  AC1 = numeric(),
+  rows = character()
+)
+
+for(j in names(i)[3:29]) {
+  
+  mat <- cbind(i[[j]], l[[j]], s[[j]])
+  
+  if(sd(mat) != 0) {
+    
+    kappa <- kappam.light(mat)
+    gwet <- gwet.ac1.raw(mat)
+    mean <- mean(mat)
+    
+    out <- rbind(out, tibble(
+      variable = j,
+      mean = mean,
+      kappa = kappa$value,
+      AC1 = gwet$est$coeff.val,
+    ))
+
+  } else {
+    
+    mean <- mean(mat)
+
+    out <- rbind(out, tibble(
+      variable = j,
+      mean = mean,
+      kappa = NA,
+      AC1 = NA,
+    ))
+    
+  }
+  
+}
+
+out %>%
+  mutate(variable = gsub("\\.", " ", variable)) %>%
+  kable(digits = 2) %>%
+  kable_styling()
+```
+
+
+```{r, echo = F, warning = F}
+icc <- icc(cbind(i$count, l$count, s$count),
+           model = "twoway",
+           type = "consistency",
+           unit = "average")
+mean <- mean(c(i$count, l$count, s$count))
+```
+
+For our `count` variable, the mean is `r round(mean, 2)` and the intra-class correlation is `r round(icc$value, 2)`.
+
+\newpage
+
+Codes by frequency:
+
+```{r, echo = F}
+out %>%
+  ggplot() + 
+  geom_col(aes(reorder(variable, -mean), mean, fill = kappa), color = "black") +
+  scale_x_discrete(name = "code") + 
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = .8) +
+  coord_flip()
+```
+
+The relationship between Cohen's Kappa and Gwet's AC1 in this sample: 
+
+```{r, echo = F}
+out %>%
+  ggplot() +
+  geom_point(aes(kappa, AC1)) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0, 1))
+```
+
+The relationship between Cohen's Kappa and frequency in this sample: 
+
+```{r, echo = F}
+out %>%
+  ggplot() +
+  geom_point(aes(kappa, mean)) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0, .5))
 ```
