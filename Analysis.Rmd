@@ -1,0 +1,328 @@
+---
+title: "Analysis"
+output: html_document
+---
+
+```{r, include = F}
+library(tidyverse)
+library(broom)
+library(scales)
+library(openxlsx)
+library(knitr)
+library(kableExtra)
+
+#Load data
+quant <- readRDS("S:\\COPE\\Data\\FUS\\210826 COPE FUS Clean Quantitative Responses.rds")
+qual <- read.xlsx("S:\\COPE\\Data\\FUS\\Coded Qualitative Responses\\Depression Causes Master Codes.xlsx",
+                  startRow = 3)
+
+#Join
+df <- left_join(quant, qual, "responseid")
+
+#Rename variables for easy outputs
+df <- df %>%
+  rename(
+    Race = race,
+    Gender = gender,
+    `Sexual Orientation` = orientation,
+    Age = age,
+    `Lack of Control` = lack_of_control,
+    `Lack of Mental Health Supports` = lack_of_mental_health_support,
+    `Lack of Hope or Certainty About the Future` = lack_of_hope_certainty,
+    `Social Comparison` = social_comparison,
+    `Body Image` = body_image,
+    `Low Self-Worth` = low_self_worth,
+    `School` = school,
+    `Work` = work,
+    `Unspecified Stress or Emotional Distress` = unspecified_stress,
+    Biogenetic = biogenetic,
+    Hereditary = hereditary,
+    `Other Physical or Mental Health Issues` = other_disorder,
+    `Adverse Childhood Events` = adverse_childhood,
+    `Trauma/Abuse/Neglect at an Unspecified Time` = trauma_unsp,
+    Grief = grief,
+    `Dysfunctional Home/Family Relationships` = dysfunction_home,
+    `Dysfunctional Peer Relationships` = dysfunction_peer,
+    `Loneliness/Isolation` = loneliness,
+    `Community/Systems` = community,
+    `Global/Social Problems` = global_social_problems,
+    `Social Media/Internet Use` = social_media,
+    `Unspecified Environment` = environment_unsp,
+    `Identity-Related Stressors` = identity,
+    `Pressure or External Expectations` = pressure_expectations,
+    `No Idea` = no_idea,
+    `Just Happens` = just_happens,
+    `Different for Everybody` = different_for_everybody,
+    Count = count
+  ) %>%
+  mutate(responseType = recode(responseType,
+                               "Personal" = "For Myself",
+                               "General" = "For Others"))
+
+#Save list of codes
+codes <- df %>%
+  select(`Lack of Control`:Count) %>%
+  names()
+binaryCodes <- setdiff(codes, "Count")
+```
+
+## 0. Sample Description
+
+```{r, echo = F}
+df_0 <- df %>%
+  select(responseid, Race, Gender, `Sexual Orientation`, Age) %>%
+  distinct()
+
+count(df_0, Race) %>%
+  mutate(pct = percent(n / sum(n), accuracy = .01)) %>%
+  kable() %>%
+  kable_styling()
+
+count(df_0, Gender) %>%
+  mutate(pct = percent(n / sum(n), accuracy = .01)) %>%
+  kable() %>%
+  kable_styling()
+
+count(df_0, `Sexual Orientation`) %>%
+  mutate(pct = percent(n / sum(n), accuracy = .01)) %>%
+  kable() %>%
+  kable_styling()
+
+df_0 %>%
+  summarize(mean = round(mean(Age, na.rm = T), 2),
+            sd = round(sd(Age, na.rm = T), 2)) %>%
+  kable(caption = "Age") %>%
+  kable_styling()
+```
+
+## 1. Code Frequency
+
+```{r, echo = F}
+#Dataset for analysis 1: codes in each or either response
+df_1 <- df %>%
+  pivot_longer(all_of(codes), names_to = "code") %>%
+  select(responseid, responseType, code, value) %>%
+  pivot_wider(names_from = responseType, values_from = value) %>%
+  rowwise() %>%
+  mutate(Either = max(`For Myself`, `For Others`)) %>%
+  ungroup()
+
+#Analysis 1
+df_1 %>%
+  filter(code != "Count") %>%
+  group_by(code) %>%
+  summarize(across(c(`For Others`, `For Myself`, Either),
+                   ~ . %>%
+                     mean(na.rm = T) %>%
+                     percent(accuracy = .01))) %>%
+  kable() %>%
+  kable_styling()
+
+df_1 %>%
+  filter(code != "Count") %>%
+  group_by(code) %>%
+  summarize(Either = mean(Either, na.rm = T)) %>%
+  mutate(code = fct_reorder(code, Either)) %>%
+  ggplot() +
+    geom_col(aes(code, Either), fill = "skyblue") +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = "Percent Endorsed (Either Version)", label = percent_format(accuracy = 1)) +
+    coord_flip() +
+    theme_classic()
+```
+
+## 2. Demographic Predictors
+
+```{r, echo = F}
+#Dataset for analysis 2: predicting presence of code in either response
+df_2 <- df %>%
+  group_by(responseid, Race, Gender, `Sexual Orientation`, Age) %>%
+  summarize(across(.cols = all_of(codes),
+                   .fns = max),
+            .groups = "drop")
+
+#Analysis 2
+out_2 <- tibble()
+for(x in c("Race", "Gender", "Sexual Orientation", "Age")) {
+  
+  if(x %in% c("Race", "Gender", "Sexual Orientation")) {
+    
+    categories_to_keep <- df_2 %>%
+      count(get(x)) %>%
+      filter(n >= 25) %>%
+      mutate(categories = as.character(`get(x)`)) %>%
+      pull(categories)
+    
+    df_temp <- df_2 %>%
+      filter(get(x) %in% categories_to_keep)
+    
+  } else {
+    
+    df_temp <- df_2
+    
+  }
+  
+  for(y in codes) {
+    
+    regression <- glm(
+      data = df_temp,
+      formula = as.formula(paste0("`", y, "` ~ `", x, "`"))
+    ) %>%
+      tidy() %>%
+      filter(term != "(Intercept)") %>%
+      mutate(outcome = y)
+    
+    out_2 <- rbind(out_2, regression)
+    
+  }
+  
+}
+
+# hist(out_2$p.value)
+
+out_2$p.value <- p.adjust(out_2$p.value, "BH")
+
+out_2 %>%
+  mutate(predictor = case_when(
+           grepl("Race", term) ~ "Race",
+           grepl("Gender", term) ~ "Gender",
+           grepl("Sexual Orientation", term) ~ "Sexual Orientation",
+           grepl("Age", term) ~ "Age"),
+         level = case_when(
+           grepl("Race", term) ~ gsub("Race", "", term),
+           grepl("Gender", term) ~ gsub("Gender", "", term),
+           grepl("Sexual Orientation", term) ~ gsub("Sexual Orientation", "", term),
+           grepl("Age", term) ~ "NA"
+         ),
+         OR = exp(estimate),
+         statistic_to_report = paste0(
+           "OR=",
+           format(round(OR, 2), nsmall = 2),
+           " (p=",
+           format(round(p.value, 3), nsmall = 3),
+           ")"
+         )) %>%
+  pivot_wider(id_cols = c(predictor, level),
+              names_from = outcome,
+              values_from = statistic_to_report) %>%
+  kable() %>%
+  kable_styling()
+```
+
+#### Significant predictors only
+
+```{r, echo = F}
+out_2 %>%
+  filter(p.value < .05) %>%
+  mutate(predictor = case_when(
+           grepl("Race", term) ~ "Race",
+           grepl("Gender", term) ~ "Gender",
+           grepl("Sexual Orientation", term) ~ "Sexual Orientation",
+           grepl("Age", term) ~ "Age"),
+         level = case_when(
+           grepl("Race", term) ~ gsub("Race", "", term),
+           grepl("Gender", term) ~ gsub("Gender", "", term),
+           grepl("Sexual Orientation", term) ~ gsub("Sexual Orientation", "", term),
+           grepl("Age", term) ~ "NA"
+         ),
+         OR = exp(estimate),
+         statistic_to_report = paste0(
+           "OR=",
+           format(round(OR, 2), nsmall = 2),
+           " (p=",
+           format(round(p.value, 3), nsmall = 3),
+           ")"
+         )) %>%
+  select(predictor, level, outcome, statistic_to_report) %>%
+  kable() %>%
+  kable_styling()
+```
+
+## 3. Difference by Subject (Myself/Others)
+
+```{r, echo = F}
+#Dataset for analysis 3
+df_3 <- df %>%
+  pivot_longer(all_of(setdiff(codes, "count")), names_to = "code") %>%
+  select(responseid, responseType, code, value) %>%
+  pivot_wider(names_from = responseType, values_from = value)
+
+#Analysis 3
+out_3 <- tibble()
+for(x in binaryCodes) {
+  
+  df_temp <- df_3 %>%
+    filter(code == x) %>%
+    drop_na()
+  
+  if(sum(df_temp$`For Myself`) > 0 & sum(df_temp$`For Others`) > 0) {
+    
+    X2_temp <- mcnemar.test(df_temp$`For Myself`, df_temp$`For Others`)
+    
+  } else {
+    
+    X2_temp <- tibble(
+      statistic = NA_real_,
+      p.value = NA_real_
+    )
+
+  }
+  
+  out_temp <- tibble(
+    code = x,
+    prop_pers = mean(df_temp$`For Myself`),
+    se_pers = sd(df_temp$`For Myself`) / sqrt(nrow(df_temp)),
+    prop_gen = mean(df_temp$`For Others`),
+    se_gen = sd(df_temp$`For Others`) / sqrt(nrow(df_temp)),
+    X2 = X2_temp$statistic,
+    p = X2_temp$p.value
+  )
+  
+  out_3 <- rbind(out_3, out_temp)
+  
+}
+
+# hist(out_3$p)
+
+out_3$p <- p.adjust(out_3$p, "BH")
+
+out_3 %>%
+  select(Code = code,
+         `For Myself` = prop_pers,
+         `For Others` = prop_gen,
+         X2,
+         p) %>%
+  mutate(`For Myself` = percent(`For Myself`, accuracy = .01),
+         `For Others` = percent(`For Others`, accuracy = .01),
+         X2 = format(round(X2, 2), nsmall = 2),
+         p = format(round(p, 3), nsmall = 3)) %>%
+  arrange(Code) %>%
+  kable() %>%
+  kable_styling()
+```
+
+#### Signifiant predictors only
+
+```{r, echo = F}
+out_3 %>%
+  filter(p < .05) %>%
+  pivot_longer(c(prop_gen, prop_pers, se_gen, se_pers),
+               names_sep = "_",
+               names_to = c("statistic", "category")) %>%
+  pivot_wider(names_from = statistic,
+              values_from = value) %>%
+  mutate(category = recode(category,
+                           "gen" = "For Others",
+                           "pers" = "For Myself")) %>%
+  ggplot() +
+    geom_col(aes(category, prop), fill = "skyblue") +
+    geom_errorbar(aes(category, ymin = prop - se, ymax = prop + se),
+                  width = .4, color = "orange", size = 1) +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = NULL, label = percent) +
+    facet_wrap(~ code,
+               scales = "free") +
+    theme_classic() +
+    ggtitle("Perceived Causes of Depression, for Myself and for Others",
+            "Means and Standard Errors")
+```
