@@ -254,6 +254,27 @@ out_2 %>%
     theme(text = element_text(size = 16)) +
     ggtitle("Perceived Causes of Depression, for Myself and for Others",
             "Means and Standard Errors")
+
+# Social Media/Internet Use Only
+out_2 %>%
+  filter(code == "Social Media/Internet Use") %>%
+    pivot_longer(c(prop_gen, prop_pers, se_gen, se_pers),
+               names_sep = "_",
+               names_to = c("statistic", "category")) %>%
+    pivot_wider(names_from = statistic,
+              values_from = value) %>%
+  mutate(category = recode(category,
+                           "gen" = "...For Others",
+                           "pers" = "...For Themselves")) %>%
+  ggplot() +
+    geom_col(aes(category, prop), fill = "skyblue") +
+    geom_errorbar(aes(category, ymin = prop - se, ymax = prop + se),
+                  width = .4, color = "orange", size = 1) +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = NULL, label = percent_format(accuracy = 1)) +
+    theme_classic() +
+    theme(text = element_text(size = 16)) +
+    ggtitle("Adolescents Who Believe That Social Media/\nInternet Use Causes Depression...")
 ```
 
 ## Aim 3: Demographic Predictors

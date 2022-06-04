@@ -1,0 +1,117 @@
+---
+title: "Symptom Beliefs Analysis"
+output: html_document
+---
+
+```{r, include = F}
+library(easypackages)
+libraries("ggplot2", "scales", "knitr", "kableExtra", "rmcorr", "poLCA", "broom", "tidyverse")
+
+df <- readRDS("S:\\COPE\\Data\\FUS\\220429 COPE FUS Clean Quantitative Responses.rds")
+
+# Rename symptoms to align with T2T variables
+df <- df %>%
+  rename(defInterest = dep_pleasure,
+         defDown = dep_hopeless,
+         defSleep = dep_sleep,
+         defEnergy = dep_tired,
+         defAppetite = dep_eat,
+         defSelf = dep_esteem,
+         defConcentrate = dep_concentrate,
+         defPace = dep_movement,
+         defSuicide = dep_ideation,
+         defOther = dep_other,
+         defNone = dep_none)
+
+symptoms <- c("Interest", "Down", "Sleep", "Energy", "Appetite", "Self", "Concentrate", "Pace", "Suicide", "Other", "None")
+symptoms_lca <- c("Interest", "Down", "Sleep", "Energy", "Appetite", "Self", "Concentrate", "Pace", "Suicide")
+```
+
+## Sample Description
+
+```{r}
+count(df, race) %>%
+  mutate(prop = n / sum(n))
+count(df, gender) %>%
+  mutate(prop = n / sum(n))
+count(df, orientation) %>%
+  mutate(prop = n / sum(n))
+count(df, age) %>%
+  mutate(prop = n / sum(n))
+```
+
+## Analysis 1: Description of Symptom Beliefs
+
+```{r}
+df %>%
+  select(all_of(paste0("def", symptoms))) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarize(prop = mean(value, na.rm = T))
+```
+
+```{r} 
+df %>%
+  pull(dep_other_text) %>%
+  unique()
+```
+
+## Analysis 2: LCA
+
+```{r}
+df_lca <- df %>%
+  mutate(across(all_of(paste0("def", symptoms_lca)), ~ . + 1))
+
+f <- with(df_lca, cbind(defInterest, defDown, defSleep, defEnergy, defAppetite, defSelf, defConcentrate, defPace, defSuicide)) ~ 1
+
+lca1 <- poLCA(f, df_lca, nclass = 1)
+lca2 <- poLCA(f, df_lca, nclass = 2)
+lca3 <- poLCA(f, df_lca, nclass = 3)
+lca4 <- poLCA(f, df_lca, nclass = 4)
+lca5 <- poLCA(f, df_lca, nclass = 5)
+
+tibble(
+  classes = 1:5,
+  AIC = c(lca1$aic, lca2$aic, lca3$aic, lca4$aic, lca5$aic),
+  BIC = c(lca1$bic, lca2$bic, lca3$bic, lca4$bic, lca5$bic)
+)
+
+df$class <- as.factor(lca2$predclass)
+```
+
+```{r}
+df %>%
+  pivot_longer(all_of(paste0("def", symptoms_lca))) %>%
+  group_by(class, name) %>%
+  summarize(mean = mean(value),
+            se = sd(value) / sqrt(n())) %>%
+  ggplot(aes(x = name, y = mean, group = class, color = class)) +
+    geom_point() +
+    geom_line() +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se))
+```
+
+## Analysis 3: t-Tests
+
+```{r}
+t.test(df$depression ~ df$class)
+t.test(df$hopelessness ~ df$class)
+t.test(df$dep_permanence ~ df$class)
+t.test(df$helpful_therapy ~ df$class)
+t.test(df$helpful_meds ~ df$class)
+```
+
+```{r}
+df %>%
+  pivot_longer(c(depression, hopelessness, dep_permanence, helpful_therapy, helpful_meds)) %>%
+  group_by(class, name) %>%
+  summarize(mean = mean(value, na.rm = T),
+            sd = sd(value, na.rm = T),
+            n = n(),
+            se = sd(value, na.rm = T) / sqrt(sum(!is.na(value))),
+            ci = se * 1.96) %>%
+  ggplot(aes(x = class, y = mean, group = class, color = class, fill = class)) +
+    geom_col(position = "dodge") +
+    geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black") +
+    facet_wrap(~ name, scales = "free")
+```
