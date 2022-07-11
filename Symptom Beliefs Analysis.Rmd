@@ -8,6 +8,8 @@ library(easypackages)
 libraries("ggplot2", "scales", "knitr", "kableExtra", "rmcorr", "poLCA", "broom", "tidyverse")
 
 df <- readRDS("S:\\COPE\\Data\\FUS\\220429 COPE FUS Clean Quantitative Responses.rds")
+study_2_table_1 <- readRDS(file = "S:\\TRACK to TREAT\\Data\\Processed Data\\Table 1.rds")
+study_2_combinations <- readRDS(file = "S:\\TRACK to TREAT\\Data\\Processed Data\\Combinations.rds")
 
 # Rename symptoms to align with T2T variables
 df <- df %>%
@@ -31,29 +33,100 @@ symptoms_lca <- c("Interest", "Down", "Sleep", "Energy", "Appetite", "Self", "Co
 
 ```{r}
 count(df, race) %>%
-  mutate(prop = n / sum(n))
+  mutate(pct = percent(n / sum(n), .01))
 count(df, gender) %>%
-  mutate(prop = n / sum(n))
+  mutate(pct = percent(n / sum(n), .01))
 count(df, orientation) %>%
-  mutate(prop = n / sum(n))
+  mutate(pct = percent(n / sum(n), .01))
 count(df, age) %>%
-  mutate(prop = n / sum(n))
+  mutate(pct = percent(n / sum(n), .01))
+mean(df$age, na.rm = T)
+sd(df$age, na.rm = T)
+```
+
+## Robustness Check
+
+```{r, echo = F}
+checkCode <- function(x) {
+  
+  temp <- table(df$studyGroup, df[[paste0("def", x)]])
+  results <- chisq.test(temp)
+  return(results)
+  
+}
+
+out <- sapply(symptoms, checkCode)
+out
 ```
 
 ## Analysis 1: Description of Symptom Beliefs
 
 ```{r}
-df %>%
+table_1 <- df %>%
   select(all_of(paste0("def", symptoms))) %>%
   pivot_longer(everything()) %>%
   group_by(name) %>%
   summarize(prop = mean(value, na.rm = T))
+
+table_1 %>%
+  mutate(pct = percent(prop, .01))
 ```
+
+```{r}
+table_1 %>%
+  inner_join(study_2_table_1, by = "name", suffix = c("_1", "_2")) %>%
+  pivot_longer(c("prop_1", "prop_2"),
+               names_to = "study") %>%
+  mutate(study = gsub("prop_", "Study ", study)) %>%
+  ggplot(aes(name, value, group = study)) +
+    geom_col(aes(fill = study), position = "dodge") +
+    coord_flip()
+```
+
+"Other" symptoms
 
 ```{r} 
 df %>%
   pull(dep_other_text) %>%
   unique()
+```
+
+How many endorsed all DSM symptoms?
+
+```{r}
+df %>%
+  select(responseid, matches("def"), -defOther, -defNone) %>%
+  pivot_longer(matches("def")) %>%
+  group_by(responseid) %>%
+  summarize(prop_symptoms_endorsed = mean(value)) %>%
+  count(prop_symptoms_endorsed) %>%
+  mutate(total = sum(n),
+         prop = n / sum(n))
+```
+
+Symptom combinations
+
+```{r}
+study_1_combinations <- df %>%
+  mutate(combination = paste(defInterest,
+                             defDown,
+                             defSleep,
+                             defEnergy,
+                             defAppetite,
+                             defSelf,
+                             defConcentrate,
+                             defPace,
+                             defSuicide,
+                             defOther,
+                             dep_other_text)) %>%
+  pull(combination) %>%
+  unique()
+
+study_2_combinations <- readRDS(file = "S:\\TRACK to TREAT\\Data\\Processed Data\\Combinations.rds")
+
+combinations <- unique(c(study_1_combinations, study_2_combinations))
+combinations <- setdiff(combinations, "NA NA NA NA NA NA NA NA NA NA NA")
+length(combinations)
 ```
 
 ## Analysis 2: LCA
@@ -76,7 +149,18 @@ tibble(
   BIC = c(lca1$bic, lca2$bic, lca3$bic, lca4$bic, lca5$bic)
 )
 
-df$class <- as.factor(lca2$predclass)
+df$class <- as.factor(3 - lca2$predclass)
+```
+
+```{r}
+df %>%
+  pivot_longer(all_of(paste0("def", symptoms_lca))) %>%
+  group_by(class, name) %>%
+  summarize(n = n(),
+            mean = mean(value),
+            se = sd(value) / sqrt(n())) %>%
+  group_by(class, n) %>%
+  summarize(mean = percent(mean(mean), .01))
 ```
 
 ```{r}

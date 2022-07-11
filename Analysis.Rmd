@@ -14,7 +14,7 @@ library(usa)
 library(psych)
 
 #Load data
-quant <- readRDS("S:\\COPE\\Data\\FUS\\220429 COPE FUS Clean Quantitative Responses.rds")
+quant <- readRDS("S:\\COPE\\Data\\FUS\\220607 COPE FUS Clean Quantitative Responses.rds")
 qual <- read.xlsx("S:\\COPE\\Data\\FUS\\Coded Qualitative Responses\\Depression Causes Master Codes.xlsx",
                   startRow = 3)
 
@@ -157,6 +157,23 @@ df_either %>%
     theme_classic() +
     theme(text = element_text(size = 16)) +
     ggtitle("Most Commonly Endorsed Causes for Depression")
+
+#Top Five
+df_either %>%
+  filter(code != "Count") %>%
+  group_by(code) %>%
+  summarize(Either = mean(Either, na.rm = T)) %>%
+  arrange(-Either) %>%
+  slice(1:5) %>%
+  mutate(code = fct_reorder(code, Either)) %>%
+  ggplot() +
+    geom_col(aes(code, Either), fill = "skyblue") +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = "Percent Endorsed (Either for Myself or for Others)", label = percent_format(accuracy = 1)) +
+    coord_flip() +
+    theme_classic() +
+    theme(text = element_text(size = 18)) +
+    ggtitle("Most Commonly Endorsed Causes for Depression")
 ```
 
 ## Aim 2: Difference by Subject (Myself/Others)
@@ -192,8 +209,10 @@ for(x in binaryCodes) {
     code = x,
     prop_pers = mean(df_temp$`For Myself`),
     se_pers = sd(df_temp$`For Myself`) / sqrt(nrow(df_temp)),
+    ci_pers = se_pers * 1.96,
     prop_gen = mean(df_temp$`For Others`),
     se_gen = sd(df_temp$`For Others`) / sqrt(nrow(df_temp)),
+    ci_gen = se_gen * 1.96,
     X2 = X2_temp$statistic,
     p = X2_temp$p.value
   )
@@ -233,7 +252,7 @@ sd(counts$`For Others`)
 # Plot significant predictors
 out_2 %>%
   filter(p < .05) %>%
-  pivot_longer(c(prop_gen, prop_pers, se_gen, se_pers),
+  pivot_longer(c(prop_gen, prop_pers, ci_gen, ci_pers),
                names_sep = "_",
                names_to = c("statistic", "category")) %>%
   pivot_wider(names_from = statistic,
@@ -243,7 +262,7 @@ out_2 %>%
                            "pers" = "For Myself")) %>%
   ggplot() +
     geom_col(aes(category, prop), fill = "skyblue") +
-    geom_errorbar(aes(category, ymin = prop - se, ymax = prop + se),
+    geom_errorbar(aes(category, ymin = prop - ci, ymax = prop + ci),
                   width = .4, color = "orange", size = 1) +
     scale_x_discrete(name = NULL) +
     scale_y_continuous(name = NULL, label = percent) +
@@ -253,12 +272,12 @@ out_2 %>%
     theme_classic() +
     theme(text = element_text(size = 16)) +
     ggtitle("Perceived Causes of Depression, for Myself and for Others",
-            "Means and Standard Errors")
+            "Means and 95% Confidence Intervals")
 
 # Social Media/Internet Use Only
 out_2 %>%
   filter(code == "Social Media/Internet Use") %>%
-    pivot_longer(c(prop_gen, prop_pers, se_gen, se_pers),
+    pivot_longer(c(prop_gen, prop_pers, ci_gen, ci_pers),
                names_sep = "_",
                names_to = c("statistic", "category")) %>%
     pivot_wider(names_from = statistic,
@@ -268,13 +287,14 @@ out_2 %>%
                            "pers" = "...For Themselves")) %>%
   ggplot() +
     geom_col(aes(category, prop), fill = "skyblue") +
-    geom_errorbar(aes(category, ymin = prop - se, ymax = prop + se),
+    geom_errorbar(aes(category, ymin = prop - ci, ymax = prop + ci),
                   width = .4, color = "orange", size = 1) +
     scale_x_discrete(name = NULL) +
     scale_y_continuous(name = NULL, label = percent_format(accuracy = 1)) +
     theme_classic() +
     theme(text = element_text(size = 16)) +
-    ggtitle("Adolescents Who Believe That Social Media/\nInternet Use Causes Depression...")
+    ggtitle("Adolescents Who Believe That Social Media/\nInternet Use Causes Depression...",
+            "Means and 95% Confidence Intervals")
 ```
 
 ## Aim 3: Demographic Predictors
@@ -333,13 +353,34 @@ out_3 %>%
   filter(p.value < .1) %>%
   arrange(p.value)
 
-df %>%
+pressure_result <- df %>%
   filter(responseType == "For Myself") %>%
   drop_na(`Pressure or External Expectations`) %>%
   group_by(Race) %>%
   summarize(yes = sum(`Pressure or External Expectations` == 1),
             no = sum(`Pressure or External Expectations` == 0),
-            mean = mean(`Pressure or External Expectations`))
+            n = sum(`Pressure or External Expectations` %in% c(0, 1)),
+            mean = yes / n,
+            se = sd(`Pressure or External Expectations`) / sqrt(n),
+            ci = se * 1.96)
+
+pressure_result
+
+pressure_result %>%
+  mutate(Race = fct_reorder(Race, mean)) %>%
+  rowwise() %>%
+  mutate(ci_lower = max(mean - ci, 0)) %>%
+  ggplot(aes(Race, mean)) +
+    geom_col(fill = "skyblue") +
+    geom_errorbar(aes(ymin = ci_lower, ymax = mean + ci),
+                  width = .4, color = "orange", size = 1) +
+    geom_label(aes(label = paste0(yes, " of ", n))) +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = NULL, label = percent_format(accuracy = 1), limits = c(0, .5)) +
+    theme_classic() +
+    theme(text = element_text(size = 16)) +
+    ggtitle("Percent who Reported Pressure/External Expectations\nas a Cause of Their Own Depression",
+            "Means and 95% Confidence Intervals")
 ```
 
 ## Aim 4: Associations with Related Constructs
@@ -388,6 +429,46 @@ out_4 %>%
 out_4 %>%
   filter(code == "Hereditary" & DV == "helpful_meds" |
          code == "Adverse Childhood Events" & DV == "depression")
+
+df %>%
+  drop_na(Hereditary) %>%
+  group_by(responseType, Hereditary) %>%
+  summarize(helpful_meds_mean = mean(helpful_meds),
+            se = sd(helpful_meds) / sqrt(n()),
+            ci = se * 1.96) %>%
+  mutate(x = case_when(Hereditary == 0 ~ "Did Not Endorse",
+                       Hereditary == 1 ~ "Endorsed")) %>%
+  ggplot(aes(x, helpful_meds_mean)) +
+    geom_col(fill = "skyblue") +
+    geom_errorbar(aes(ymin = helpful_meds_mean - ci, ymax = helpful_meds_mean + ci),
+                  width = .4, color = "orange", size = 1) +
+    scale_x_discrete(name = "Depression is Hereditary") +
+    scale_y_continuous(name = "Pereceived Helpfulness of Medication (1-10)") +
+    theme_classic() +
+    theme(text = element_text(size = 16)) +
+    facet_wrap(~ responseType) +
+    ggtitle("Hereditary Causal Belief and Perceived Helpfulness of Medication",
+            "Means and 95% Confidence Intervals")
+
+df %>%
+  drop_na(`Adverse Childhood Events`) %>%
+  group_by(responseType, `Adverse Childhood Events`) %>%
+  summarize(depression_mean = mean(depression),
+            se = sd(depression) / sqrt(n()),
+            ci = se * 1.96) %>%
+  mutate(x = case_when(`Adverse Childhood Events` == 0 ~ "Did Not Endorse",
+                       `Adverse Childhood Events` == 1 ~ "Endorsed")) %>%
+  ggplot(aes(x, depression_mean)) +
+    geom_col(fill = "skyblue") +
+    geom_errorbar(aes(ymin = depression_mean - ci, ymax = depression_mean + ci),
+                  width = .4, color = "orange", size = 1) +
+    scale_x_discrete(name = "Depression is Caused by Adverse Childhood Events") +
+    scale_y_continuous(name = "Depression Symptom Severity (CDI-2-SF)") +
+    theme_classic() +
+    theme(text = element_text(size = 16)) +
+    facet_wrap(~ responseType) +
+    ggtitle("Adverse Childhood Events Causal Beliefs and Depression Symptom Severity",
+            "Means and 95% Confidence Intervals")
 ```
 
 ## Robustness Check
