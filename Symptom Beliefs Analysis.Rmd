@@ -44,21 +44,6 @@ mean(df$age, na.rm = T)
 sd(df$age, na.rm = T)
 ```
 
-## Robustness Check
-
-```{r, echo = F}
-checkCode <- function(x) {
-  
-  temp <- table(df$studyGroup, df[[paste0("def", x)]])
-  results <- chisq.test(temp)
-  return(results)
-  
-}
-
-out <- sapply(symptoms, checkCode)
-out
-```
-
 ## Analysis 1: Description of Symptom Beliefs
 
 ```{r}
@@ -198,4 +183,19 @@ df %>%
     geom_col(position = "dodge") +
     geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black") +
     facet_wrap(~ name, scales = "free")
+```
+
+## Robustness Check
+
+Are there differences by study group?
+
+```{r}
+chisq.test(table(df$studyGroup, df$class))
+```
+
+Are there differences by treatment history?
+
+```{r}
+chisq.test(table(df$txHist_received, df$class))
+chisq.test(table(df$txHist_received %in% c("Yes, now", "Yes, in the past"), df$class))
 ```
