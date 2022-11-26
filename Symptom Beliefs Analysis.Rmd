@@ -62,10 +62,29 @@ table_1 %>%
   inner_join(study_2_table_1, by = "name", suffix = c("_1", "_2")) %>%
   pivot_longer(c("prop_1", "prop_2"),
                names_to = "study") %>%
-  mutate(study = gsub("prop_", "Study ", study)) %>%
+  mutate(study = gsub("prop_", "Study ", study) %>%
+           factor(levels = c("Study 2", "Study 1")),
+         name = case_when(
+           name == "defDown" ~ "Feeling Down",
+           name == "defInterest" ~ "Little Interest",
+           name == "defSleep" ~ "Trouble Sleeping",
+           name == "defAppetite" ~ "Poor Appetite",
+           name == "defEnergy" ~ "Little Energy",
+           name == "defSelf" ~ "Feeling Bad About Yourself",
+           name == "defConcentrate" ~ "Trouble Concentrating",
+           name == "defPace" ~ "Psychomotor Symptoms",
+           name == "defSuicide" ~ "Suicidal Ideation",
+           name == "defOther" ~ "Other"
+           ) %>%
+           factor(levels = c("Feeling Down", "Little Interest", "Trouble Sleeping", "Poor Appetite", "Little Energy", "Feeling Bad About Yourself", "Trouble Concentrating", "Psychomotor Symptoms", "Suicidal Ideation", "Other"))) %>%
   ggplot(aes(name, value, group = study)) +
     geom_col(aes(fill = study), position = "dodge") +
-    coord_flip()
+    scale_x_discrete(name = NULL, limits = rev) +
+    scale_y_continuous(name = "Percent Endorse", limits = c(0, 1), labels = percent) +
+    scale_fill_grey(name = NULL, limits = rev) +
+    coord_flip() +
+    ggtitle("Beliefs About What Symptoms Constitute Depression") +
+    theme_classic()
 ```
 
 "Other" symptoms
@@ -153,11 +172,31 @@ df %>%
   pivot_longer(all_of(paste0("def", symptoms_lca))) %>%
   group_by(class, name) %>%
   summarize(mean = mean(value),
-            se = sd(value) / sqrt(n())) %>%
-  ggplot(aes(x = name, y = mean, group = class, color = class)) +
+            se = sd(value) / sqrt(n()),
+            .groups = "drop") %>%
+  mutate(name = case_when(
+           name == "defDown" ~ "Feeling Down",
+           name == "defInterest" ~ "Little Interest",
+           name == "defSleep" ~ "Trouble Sleeping",
+           name == "defAppetite" ~ "Poor Appetite",
+           name == "defEnergy" ~ "Little Energy",
+           name == "defSelf" ~ "Feeling Bad About Yourself",
+           name == "defConcentrate" ~ "Trouble Concentrating",
+           name == "defPace" ~ "Psychomotor Symptoms",
+           name == "defSuicide" ~ "Suicidal Ideation",
+           name == "defOther" ~ "Other"
+           ) %>%
+           factor(levels = c("Feeling Down", "Little Interest", "Trouble Sleeping", "Poor Appetite", "Little Energy", "Feeling Bad About Yourself", "Trouble Concentrating", "Psychomotor Symptoms", "Suicidal Ideation", "Other"))) %>%
+  ggplot(aes(x = name, y = mean, group = class, linetype = class)) +
     geom_point() +
     geom_line() +
-    geom_errorbar(aes(ymin = mean - se, ymax = mean + se))
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .5) +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = "Percent Endorse", limits = c(0, 1), labels = percent) +
+    scale_linetype_discrete(name = "Class") +
+    ggtitle("Beliefs About What Symptoms Constitute Depression by Class") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Analysis 3: t-Tests
@@ -179,9 +218,20 @@ df %>%
             n = n(),
             se = sd(value, na.rm = T) / sqrt(sum(!is.na(value))),
             ci = se * 1.96) %>%
-  ggplot(aes(x = class, y = mean, group = class, color = class, fill = class)) +
-    geom_col(position = "dodge") +
-    geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black") +
+  mutate(name = case_when(
+    name == "depression" ~ "Depression Symptom\nSeverity",
+    name == "hopelessness" ~ "Hopelessness",
+    name == "dep_permanence" ~ "Perceived Permanence\nof Depression",
+    name == "helpful_therapy" ~ "Perceived Helpfulness\nof Therapy",
+    name == "helpful_meds" ~ "Perceived Helpfulness\nof Medication"
+  )) %>%
+  ggplot(aes(x = class, y = mean)) +
+    geom_col(position = "dodge", fill = "lightgrey") +
+    geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black", width = .5) +
+    scale_x_discrete(name = "Class") +
+    scale_y_continuous(name = NULL) +
+    ggtitle("Clinical Variables by Class") +
+    theme_classic() +
     facet_wrap(~ name, scales = "free")
 ```
 
